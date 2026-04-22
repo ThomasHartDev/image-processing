@@ -17,7 +17,9 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "smoke": "pnpm build && node scripts/smoke.mjs"
+    "smoke": "pnpm build && node scripts/smoke.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "sharp": "^0.34.5",
@@ -25,6 +27,7 @@
   },
   "devDependencies": {
     "@types/node": "^20",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.4"
   }
 }
