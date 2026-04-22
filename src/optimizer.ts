@@ -1,3 +1,4 @@
+import sharp from "sharp";
 import { encodeImage } from "./encode";
 import { calculateSSIM } from "./ssim";
 import {
@@ -9,6 +10,30 @@ import {
   type OptimizationOptions,
   type OptimizationResult,
 } from "./types";
+
+/**
+ * Apply optional dimension constraints to the input buffer BEFORE the SSIM search runs.
+ * Only downsizes — withoutEnlargement ensures a 100x100 input with maxWidth=500 stays 100x100.
+ * Returns the original buffer untouched when neither maxWidth nor maxHeight is provided.
+ */
+async function applyResize(
+  inputBuffer: Buffer,
+  maxWidth: number | undefined,
+  maxHeight: number | undefined,
+  preserveAspect: boolean,
+): Promise<Buffer> {
+  if (maxWidth === undefined && maxHeight === undefined) {
+    return inputBuffer;
+  }
+
+  // preserveAspect=true  → fit inside the box, aspect ratio kept
+  // preserveAspect=false → clamp each dimension independently (fill, no enlargement)
+  const fit = preserveAspect ? "inside" : "fill";
+
+  return sharp(inputBuffer)
+    .resize(maxWidth ?? null, maxHeight ?? null, { fit, withoutEnlargement: true })
+    .toBuffer();
+}
 
 /**
  * Find optimal quality using binary search with SSIM threshold
@@ -211,10 +236,23 @@ export async function optimizeImage(
   inputBuffer: Buffer,
   options: OptimizationOptions,
 ): Promise<OptimizationResult> {
-  const { format, level, customQuality, customTargetSizeKB } = options;
+  const {
+    format,
+    level,
+    customQuality,
+    customTargetSizeKB,
+    maxWidth,
+    maxHeight,
+    preserveAspect = true,
+  } = options;
 
-  // Get original file size
+  // Original size is measured against the ORIGINAL input — not the resized buffer —
+  // so the savings figure reflects real bytes saved from the caller's perspective.
   const originalSize = inputBuffer.length;
+
+  // Resize up-front so SSIM compares the compressed output to the already-resized source.
+  // Comparing against the full-size original would penalize a correctly-downscaled image.
+  const workingBuffer = await applyResize(inputBuffer, maxWidth, maxHeight, preserveAspect);
 
   let optimizedBuffer: Buffer;
   let quality: number;
@@ -224,11 +262,11 @@ export async function optimizeImage(
   if (format === "gif") {
     // GIF has limited quality control, use default effort
     quality = FORMAT_QUALITY_RANGES[format].default;
-    optimizedBuffer = await encodeImage(inputBuffer, format, quality);
-    ssimValue = await calculateSSIM(inputBuffer, optimizedBuffer);
+    optimizedBuffer = await encodeImage(workingBuffer, format, quality);
+    ssimValue = await calculateSSIM(workingBuffer, optimizedBuffer);
   } else if (level === "custom" && customTargetSizeKB !== undefined) {
     // Custom target size for lossy formats
-    const result = await findOptimalSizeKB(inputBuffer, format, customTargetSizeKB);
+    const result = await findOptimalSizeKB(workingBuffer, format, customTargetSizeKB);
     quality = result.quality;
     ssimValue = result.ssim;
     optimizedBuffer = result.buffer;
@@ -239,12 +277,12 @@ export async function optimizeImage(
       Math.min(customQuality, FORMAT_QUALITY_RANGES[format].max),
     );
 
-    optimizedBuffer = await encodeImage(inputBuffer, format, quality);
-    ssimValue = await calculateSSIM(inputBuffer, optimizedBuffer);
+    optimizedBuffer = await encodeImage(workingBuffer, format, quality);
+    ssimValue = await calculateSSIM(workingBuffer, optimizedBuffer);
   } else {
     // Use intelligent optimization with target SSIM for lossy formats
     const targetSSIM = SSIM_TARGETS[level];
-    const result = await findOptimalQuality(inputBuffer, format, targetSSIM, level);
+    const result = await findOptimalQuality(workingBuffer, format, targetSSIM, level);
     quality = result.quality;
     ssimValue = result.ssim;
     optimizedBuffer = result.buffer;

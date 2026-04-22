@@ -91,22 +91,82 @@ describe("optimizeImage", () => {
     expect(meta.height).toBe(500);
   });
 
-  it("produces a 200-wide output when the input is pre-resized to 200px (aspect preserved)", async () => {
-    // optimizeImage doesn't have a maxWidth option, so we resize the input first with
-    // sharp (the same primitive the library itself uses) and verify the round-trip
-    // preserves the target width and respects the aspect ratio.
+  it("produces a 200-wide output when maxWidth=200 is passed (aspect preserved)", async () => {
     const fixture = await makeFixturePng(500, 500);
-    const resized = await sharp(fixture).resize({ width: 200 }).png().toBuffer();
 
-    const result = await optimizeImage(resized, {
+    const result = await optimizeImage(fixture, {
       format: "webp",
       level: "maximum-compression",
+      maxWidth: 200,
     });
 
     const meta = await sharp(result.buffer).metadata();
     expect(meta.width).toBe(200);
     expect(meta.height ?? 0).toBeLessThanOrEqual(200);
     expect(meta.height ?? 0).toBeGreaterThan(0);
+  });
+
+  it("(a) maxWidth clamps output width", async () => {
+    // 800x400 source, maxWidth=400. Width must be clamped to 400.
+    const fixture = await makeFixturePng(800, 400);
+
+    const result = await optimizeImage(fixture, {
+      format: "webp",
+      level: "maximum-compression",
+      maxWidth: 400,
+    });
+
+    const meta = await sharp(result.buffer).metadata();
+    expect(meta.width).toBe(400);
+  });
+
+  it("(b) maxWidth + preserveAspect=true scales proportionally", async () => {
+    // 800x400 (2:1 aspect) source. Clamping width to 400 with aspect preserved should give 400x200.
+    const fixture = await makeFixturePng(800, 400);
+
+    const result = await optimizeImage(fixture, {
+      format: "webp",
+      level: "maximum-compression",
+      maxWidth: 400,
+      preserveAspect: true,
+    });
+
+    const meta = await sharp(result.buffer).metadata();
+    expect(meta.width).toBe(400);
+    expect(meta.height).toBe(200);
+  });
+
+  it("(c) maxWidth + preserveAspect=false clamps each dimension independently", async () => {
+    // 800x400 source with maxWidth=400 and maxHeight=400 and preserveAspect=false.
+    // Should produce exactly 400x400 (fill), ignoring the source aspect ratio.
+    const fixture = await makeFixturePng(800, 400);
+
+    const result = await optimizeImage(fixture, {
+      format: "webp",
+      level: "maximum-compression",
+      maxWidth: 400,
+      maxHeight: 400,
+      preserveAspect: false,
+    });
+
+    const meta = await sharp(result.buffer).metadata();
+    expect(meta.width).toBe(400);
+    expect(meta.height).toBe(400);
+  });
+
+  it("(d) output never upsizes beyond source", async () => {
+    // 100x100 source with maxWidth=500 should stay 100x100 — withoutEnlargement guards this.
+    const fixture = await makeFixturePng(100, 100);
+
+    const result = await optimizeImage(fixture, {
+      format: "webp",
+      level: "maximum-compression",
+      maxWidth: 500,
+    });
+
+    const meta = await sharp(result.buffer).metadata();
+    expect(meta.width).toBe(100);
+    expect(meta.height).toBe(100);
   });
 });
 

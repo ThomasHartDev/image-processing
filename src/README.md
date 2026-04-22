@@ -29,6 +29,21 @@ Top-level entry point. Picks a quality via SSIM-guided binary search (or hits a
 target file size if `level: "custom"` + `customTargetSizeKB` is passed) and
 returns the encoded buffer plus metadata.
 
+#### Dimension options (v0.2.0+)
+
+`optimizeImage` can also resize the source before running the quality search:
+
+- `maxWidth?: number` — clamp output width. Never upsizes beyond the source.
+- `maxHeight?: number` — clamp output height. Never upsizes beyond the source.
+- `preserveAspect?: boolean` — defaults to `true`. When `true`, the output fits
+  inside the `maxWidth` x `maxHeight` box with aspect ratio preserved
+  (sharp `fit: "inside"`). When `false`, each dimension is clamped
+  independently (sharp `fit: "fill"`), which can stretch the image.
+
+All three are optional. Omitting them preserves pre-0.2.0 behavior exactly.
+Resize happens BEFORE the SSIM search so quality is measured against the
+already-downscaled source, not the original.
+
 ### `encodeImage(buffer, format, quality)`
 
 Low-level encoder wrapper around sharp. Supports `webp`, `avif`, `jpeg`, `png`,

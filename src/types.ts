@@ -6,6 +6,13 @@ export interface OptimizationOptions {
   level: OptimizationLevel;
   customQuality?: number;
   customTargetSizeKB?: number; // For custom mode: target file size in KB
+  // Optional dimension constraints. Only scales DOWN (never upsizes).
+  // When both maxWidth and maxHeight are provided:
+  //   preserveAspect=true  (default) — fit inside the box, keeping aspect ratio
+  //   preserveAspect=false           — clamp each dimension independently (fill/stretch)
+  maxWidth?: number;
+  maxHeight?: number;
+  preserveAspect?: boolean;
 }
 
 export interface OptimizationResult {
