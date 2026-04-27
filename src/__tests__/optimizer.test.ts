@@ -4,6 +4,8 @@ import {
   encodeImage,
   FORMAT_QUALITY_RANGES,
   findOptimalQuality,
+  InputTooLargeDimensionsError,
+  InputTooLargeError,
   optimizeImage,
 } from "../index";
 import type { ImageFormat } from "../types";
@@ -207,5 +209,111 @@ describe("invalid format handling", () => {
 
     await expect(encodeImage(fixture, bogus, 80)).rejects.toThrow();
     await expect(optimizeImage(fixture, { format: bogus, level: "auto" })).rejects.toThrow();
+  });
+});
+
+describe("input size guard", () => {
+  it("rejects input larger than the configured byte cap before any sharp work", async () => {
+    // Create a buffer that exceeds a tiny per-call cap. We use a small cap so the test
+    // doesn't have to materialize a real 50MB buffer in memory.
+    const oversized = Buffer.alloc(1024); // 1KB
+    const tinyCap = 512; // 512B cap
+
+    await expect(
+      optimizeImage(oversized, {
+        format: "webp",
+        level: "auto",
+        maxInputBytes: tinyCap,
+      }),
+    ).rejects.toBeInstanceOf(InputTooLargeError);
+
+    // And carries the bytes/maxBytes fields for the route to map to a 413 body.
+    try {
+      await optimizeImage(oversized, {
+        format: "webp",
+        level: "auto",
+        maxInputBytes: tinyCap,
+      });
+      throw new Error("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(InputTooLargeError);
+      const e = err as InputTooLargeError;
+      expect(e.bytes).toBe(1024);
+      expect(e.maxBytes).toBe(512);
+    }
+  });
+
+  it("default 50MB cap is enforced when maxInputBytes is omitted", async () => {
+    // Build a buffer > 50MB. Allocating 51MB of zeros is cheap and doesn't decode.
+    const oversized = Buffer.alloc(51 * 1024 * 1024);
+
+    await expect(
+      optimizeImage(oversized, { format: "webp", level: "auto" }),
+    ).rejects.toBeInstanceOf(InputTooLargeError);
+  });
+});
+
+describe("dimension probe guard", () => {
+  it("rejects input whose pixel count exceeds the configured cap", async () => {
+    // 200x200 fixture, but per-call cap of 100*100 = 10000 pixels. The 40k pixel
+    // fixture exceeds the cap, so the dimension guard fires before SSIM search.
+    const fixture = await makeFixturePng(200, 200);
+
+    await expect(
+      optimizeImage(fixture, {
+        format: "webp",
+        level: "auto",
+        maxPixels: 100 * 100,
+      }),
+    ).rejects.toBeInstanceOf(InputTooLargeDimensionsError);
+
+    try {
+      await optimizeImage(fixture, {
+        format: "webp",
+        level: "auto",
+        maxPixels: 100 * 100,
+      });
+      throw new Error("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(InputTooLargeDimensionsError);
+      const e = err as InputTooLargeDimensionsError;
+      expect(e.width).toBe(200);
+      expect(e.height).toBe(200);
+      expect(e.maxPixels).toBe(10000);
+    }
+  });
+
+  it("AVIF input gets the tighter pixel cap even when maxPixels would allow it", async () => {
+    // Build a 200x200 PNG fixture, encode as AVIF, then feed it back. We set
+    // maxPixels=1_000_000 (would allow 200x200=40k) but maxAvifPixels=10_000
+    // (rejects 40k). Confirms AVIF takes the tighter path.
+    const png = await makeFixturePng(200, 200);
+    const avif = await sharp(png).avif({ quality: 50 }).toBuffer();
+
+    // Confirm sharp actually produced an AVIF (heif container).
+    const probe = await sharp(avif).metadata();
+    expect(probe.format === "heif" || probe.format === "avif").toBe(true);
+
+    await expect(
+      optimizeImage(avif, {
+        format: "webp",
+        level: "auto",
+        maxPixels: 1_000_000,
+        maxAvifPixels: 10_000,
+      }),
+    ).rejects.toBeInstanceOf(InputTooLargeDimensionsError);
+  });
+
+  it("does NOT throw when input fits under both pixel caps", async () => {
+    // 100x100 fixture, defaults are huge. Should pass through.
+    const fixture = await makeFixturePng(100, 100);
+
+    const result = await optimizeImage(fixture, {
+      format: "webp",
+      level: "maximum-compression",
+    });
+
+    expect(Buffer.isBuffer(result.buffer)).toBe(true);
+    expect(result.buffer.length).toBeGreaterThan(0);
   });
 });

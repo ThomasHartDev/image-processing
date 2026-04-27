@@ -1,7 +1,11 @@
 import sharp from "sharp";
 import { encodeImage } from "./encode";
+import { InputTooLargeDimensionsError, InputTooLargeError } from "./errors";
 import { calculateSSIM } from "./ssim";
 import {
+  DEFAULT_MAX_AVIF_PIXELS,
+  DEFAULT_MAX_INPUT_BYTES,
+  DEFAULT_MAX_PIXELS,
   FORMAT_QUALITY_RANGES,
   MIN_QUALITY_FLOOR,
   SSIM_TARGETS,
@@ -244,7 +248,36 @@ export async function optimizeImage(
     maxWidth,
     maxHeight,
     preserveAspect = true,
+    maxInputBytes = DEFAULT_MAX_INPUT_BYTES,
+    maxPixels = DEFAULT_MAX_PIXELS,
+    maxAvifPixels = DEFAULT_MAX_AVIF_PIXELS,
   } = options;
+
+  // Guard 1: hard byte cap, checked BEFORE any sharp work. Prevents the
+  // pathological "8MB AVIF -> 2.4GB RSS during decode" path documented in
+  // apps/pixel-wand/docs/stress-report-2026-04.md from ever reaching sharp.
+  if (inputBuffer.length > maxInputBytes) {
+    throw new InputTooLargeError(inputBuffer.length, maxInputBytes);
+  }
+
+  // Guard 2: dimension probe via metadata-only read (no full decode).
+  // failOn:'truncated' prevents sharp from silently accepting malformed inputs;
+  // metadata() reads only the header chunks so RSS stays flat here.
+  const probeMetadata = await sharp(inputBuffer, { failOn: "truncated" }).metadata();
+  const probeWidth = probeMetadata.width ?? 0;
+  const probeHeight = probeMetadata.height ?? 0;
+  const probePixels = probeWidth * probeHeight;
+  // sharp reports AVIF as either "heif" or "avif" depending on container; treat both as AVIF.
+  const isAvif = probeMetadata.format === "heif" || probeMetadata.format === "avif";
+  const effectivePixelCap = isAvif ? Math.min(maxPixels, maxAvifPixels) : maxPixels;
+  if (probePixels > effectivePixelCap) {
+    throw new InputTooLargeDimensionsError(
+      probeWidth,
+      probeHeight,
+      effectivePixelCap,
+      probeMetadata.format,
+    );
+  }
 
   // Original size is measured against the ORIGINAL input — not the resized buffer —
   // so the savings figure reflects real bytes saved from the caller's perspective.

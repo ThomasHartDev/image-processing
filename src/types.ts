@@ -13,7 +13,36 @@ export interface OptimizationOptions {
   maxWidth?: number;
   maxHeight?: number;
   preserveAspect?: boolean;
+  // Hard input-size cap in bytes. Default 50MB. Throws InputTooLargeError
+  // before any sharp work happens. Per-call overridable so admins can lift it.
+  maxInputBytes?: number;
+  // Hard pixel cap (width * height). Default 12000 * 12000 = 144M pixels.
+  // Checked from sharp metadata BEFORE the SSIM search runs.
+  maxPixels?: number;
+  // Tighter pixel cap applied only when input is AVIF/HEIF, where decode
+  // amplification is much worse. Default 8000 * 8000 = 64M pixels.
+  maxAvifPixels?: number;
 }
+
+/**
+ * Default hard byte cap. 50MB. See errors.ts for rationale.
+ */
+export const DEFAULT_MAX_INPUT_BYTES = 50 * 1024 * 1024;
+
+/**
+ * Default pixel cap. 12000 * 12000 = 144M pixels. Generous enough for almost
+ * any real photo (44MP is a high-end camera) but blocks the 30000x30000
+ * adversarial inputs.
+ */
+export const DEFAULT_MAX_PIXELS = 12000 * 12000;
+
+/**
+ * Tighter pixel cap for AVIF/HEIF inputs. 8000 * 8000 = 64M pixels. AVIF
+ * decode allocates roughly 4x more RAM per pixel than JPEG/PNG due to
+ * yuv-to-rgba conversion plus tile reassembly, so the same pixel count
+ * costs much more memory.
+ */
+export const DEFAULT_MAX_AVIF_PIXELS = 8000 * 8000;
 
 export interface OptimizationResult {
   buffer: Buffer;
