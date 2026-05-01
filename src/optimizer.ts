@@ -1,6 +1,7 @@
 import sharp from "sharp";
 import { encodeImage } from "./encode";
 import { InputTooLargeDimensionsError, InputTooLargeError } from "./errors";
+import { calculatePerceptualScore } from "./perceptual";
 import { calculateSSIM } from "./ssim";
 import {
   DEFAULT_MAX_AVIF_PIXELS,
@@ -14,6 +15,33 @@ import {
   type OptimizationOptions,
   type OptimizationResult,
 } from "./types";
+
+/**
+ * Score one candidate output against the working buffer.
+ * In "perceptual" mode this uses MS-SSIM (ms-ssim-5scale), which correlates
+ * better with human perception. In every other mode it uses single-scale SSIM
+ * to preserve existing behavior bit-for-bit.
+ *
+ * Error handling note: BOTH scorers swallow internal errors and return a low
+ * fallback score so the binary search treats a failed encode/decode as "this
+ * quality didn't work" and tries another, instead of bubbling the error and
+ * aborting the whole optimization. The fallback values differ for legacy
+ * reasons: calculateSSIM returns 0.95 (a near-acceptance for some legacy
+ * thresholds but a rejection for the perceptual 0.985 threshold);
+ * calculatePerceptualScore returns 0 (clear rejection in every mode).
+ * Treat both as "unsuitable quality" and move on.
+ */
+async function scoreCandidate(
+  reference: Buffer,
+  candidate: Buffer,
+  level: OptimizationLevel,
+): Promise<number> {
+  if (level === "perceptual") {
+    const result = await calculatePerceptualScore(reference, candidate);
+    return result.score;
+  }
+  return calculateSSIM(reference, candidate);
+}
 
 /**
  * Apply optional dimension constraints to the input buffer BEFORE the SSIM search runs.
@@ -40,13 +68,22 @@ async function applyResize(
 }
 
 /**
- * Find optimal quality using binary search with SSIM threshold
+ * Find optimal quality using binary search with a quality-score threshold.
+ * The metric used depends on the level: every level except "perceptual" uses
+ * single-scale SSIM (existing behavior, unchanged). "perceptual" uses
+ * MS-SSIM (ms-ssim-5scale) which correlates better with human perception and
+ * lets the search push compression harder at the same perceived quality.
+ *
+ * The `ssim` field in the return value carries whichever score was used.
+ * The field name is kept for API stability with callers that have been
+ * reading it since v0.1. Read SSIM_TARGETS[level] to know what scale the
+ * value is on.
  */
 export async function findOptimalQuality(
   inputBuffer: Buffer,
   format: ImageFormat,
   targetSSIM: number,
-  level: "auto" | "maximum-compression" | "maximum-quality" | "custom",
+  level: OptimizationLevel,
 ): Promise<{ quality: number; ssim: number; buffer: Buffer }> {
   const qualityRange = FORMAT_QUALITY_RANGES[format];
 
@@ -77,8 +114,8 @@ export async function findOptimalQuality(
     // Encode at mid quality
     const compressed = await encodeImage(inputBuffer, format, midQuality);
 
-    // Calculate SSIM
-    const ssimValue = await calculateSSIM(inputBuffer, compressed);
+    // Score against the target metric (perceptual or single-scale SSIM)
+    const ssimValue = await scoreCandidate(inputBuffer, compressed, level);
 
     if (ssimValue >= targetSSIM) {
       // Quality is good enough, try lower quality for better compression
@@ -95,7 +132,7 @@ export async function findOptimalQuality(
   // Test remaining qualities in the narrow range
   for (let q = minQuality; q <= maxQuality; q++) {
     const testBuffer = await encodeImage(inputBuffer, format, q);
-    const testSSIM = await calculateSSIM(inputBuffer, testBuffer);
+    const testSSIM = await scoreCandidate(inputBuffer, testBuffer, level);
 
     if (testSSIM >= targetSSIM) {
       // Found a valid quality, use the lowest one that meets threshold
@@ -117,14 +154,14 @@ export async function findOptimalQuality(
     }
 
     bestBuffer = await encodeImage(inputBuffer, format, bestQuality);
-    bestSSIM = await calculateSSIM(inputBuffer, bestBuffer);
+    bestSSIM = await scoreCandidate(inputBuffer, bestBuffer, level);
   }
 
   // Safety check: if somehow bestBuffer is still null, use quality floor
   if (!bestBuffer) {
     bestQuality = Math.max(qualityFloor, qualityRange.default);
     bestBuffer = await encodeImage(inputBuffer, format, bestQuality);
-    bestSSIM = await calculateSSIM(inputBuffer, bestBuffer);
+    bestSSIM = await scoreCandidate(inputBuffer, bestBuffer, level);
   }
 
   return {

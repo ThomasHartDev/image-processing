@@ -19,7 +19,8 @@
     "build": "tsc -p tsconfig.build.json",
     "smoke": "pnpm build && node scripts/smoke.mjs",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "sharp": "^0.34.5",

@@ -1,5 +1,10 @@
 export type ImageFormat = "webp" | "avif" | "jpeg" | "png" | "gif" | "tiff" | "heif";
-export type OptimizationLevel = "auto" | "maximum-compression" | "maximum-quality" | "custom";
+export type OptimizationLevel =
+  | "auto"
+  | "maximum-compression"
+  | "maximum-quality"
+  | "custom"
+  | "perceptual";
 
 export interface OptimizationOptions {
   format: ImageFormat;
@@ -68,14 +73,18 @@ export const FORMAT_QUALITY_RANGES: Record<
   heif: { min: 1, max: 95, default: 50 },
 };
 
-// Target SSIM thresholds for different optimization levels
+// Target SSIM thresholds for different optimization levels.
 // Note: Modern codecs (WebP, AVIF) can achieve 0.99+ SSIM even at very low quality
-// So we need high thresholds and quality floors to ensure good visual results
+// So we need high thresholds and quality floors to ensure good visual results.
+// "perceptual" reuses this map but the value here is interpreted as the
+// PERCEPTUAL metric threshold (ms-ssim-5scale), not single-scale SSIM. See
+// docs/decisions/perceptual-quality-metric.md for the threshold rationale.
 export const SSIM_TARGETS: Record<OptimizationLevel, number> = {
   auto: 0.995, // Excellent quality - raised significantly to prevent quality=1
   "maximum-compression": 0.985, // Good quality - raised to ensure quality >5
   "maximum-quality": 0.9995, // Near-perfect quality
   custom: 0.995, // Default to auto
+  perceptual: 0.985, // ms-ssim-5scale threshold for "barely noticeable" (approx 1.5 butteraugli)
 };
 
 // Minimum quality levels regardless of SSIM (prevents extremely low quality)
@@ -84,4 +93,7 @@ export const MIN_QUALITY_FLOOR: Record<OptimizationLevel, Record<ImageFormat, nu
   "maximum-compression": { webp: 10, avif: 8, jpeg: 15, png: 15, gif: 30, tiff: 30, heif: 10 },
   "maximum-quality": { webp: 75, avif: 65, jpeg: 75, png: 75, gif: 80, tiff: 80, heif: 70 },
   custom: { webp: 20, avif: 15, jpeg: 25, png: 25, gif: 50, tiff: 50, heif: 20 }, // Same as auto for custom
+  // Perceptual mode uses an aggressive floor to let the metric push compression
+  // harder. The MS-SSIM threshold is the real safety net here, not the floor.
+  perceptual: { webp: 5, avif: 5, jpeg: 10, png: 10, gif: 30, tiff: 30, heif: 5 },
 };

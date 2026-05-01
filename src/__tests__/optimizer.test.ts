@@ -1,12 +1,15 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import {
+  calculatePerceptualScore,
   encodeImage,
   FORMAT_QUALITY_RANGES,
   findOptimalQuality,
   InputTooLargeDimensionsError,
   InputTooLargeError,
   optimizeImage,
+  PERCEPTUAL_METRIC_NAME,
+  SSIM_TARGETS,
 } from "../index";
 import type { ImageFormat } from "../types";
 
@@ -250,6 +253,109 @@ describe("input size guard", () => {
     await expect(
       optimizeImage(oversized, { format: "webp", level: "auto" }),
     ).rejects.toBeInstanceOf(InputTooLargeError);
+  });
+});
+
+describe("calculatePerceptualScore (ms-ssim-5scale)", () => {
+  it("scores identical buffers at or very near 1.0", async () => {
+    const fixture = await makeFixturePng(256, 256);
+    const result = await calculatePerceptualScore(fixture, fixture);
+
+    expect(result.metric).toBe(PERCEPTUAL_METRIC_NAME);
+    expect(result.metric).toBe("ms-ssim-5scale");
+    expect(result.score).toBeGreaterThan(0.999);
+    expect(result.score).toBeLessThanOrEqual(1.0);
+    expect(result.dimensions.width).toBe(256);
+    expect(result.dimensions.height).toBe(256);
+  });
+
+  it("scores a heavily compressed copy noticeably lower than identical", async () => {
+    const fixture = await makeFixturePng(256, 256);
+    // Crush quality to force visible artifacts so the metric has something to penalize.
+    const compressed = await encodeImage(fixture, "webp", 5);
+
+    const identical = await calculatePerceptualScore(fixture, fixture);
+    const lossy = await calculatePerceptualScore(fixture, compressed);
+
+    // Lossy must score strictly lower than identical. Don't pin an exact value
+    // since the synthetic gradient compresses very well — what matters is the
+    // metric is monotonic in the right direction.
+    expect(lossy.score).toBeLessThan(identical.score);
+    expect(lossy.score).toBeGreaterThan(0); // sanity: still in [0,1]
+  });
+
+  it("downscales inputs larger than 2000px before scoring (wall-time guard)", async () => {
+    const fixture = await makeFixturePng(2400, 1800);
+    const result = await calculatePerceptualScore(fixture, fixture);
+
+    expect(result.dimensions.width).toBeLessThanOrEqual(2000);
+    expect(result.dimensions.height).toBeLessThanOrEqual(2000);
+    // 2400/1800 → max side 2400 → factor 2000/2400 = 0.8333... → 2000x1500
+    expect(result.dimensions.width).toBe(2000);
+    expect(result.dimensions.height).toBe(1500);
+  });
+
+  it("handles tiny inputs (smaller than 5-scale minimum) without throwing", async () => {
+    // 32x32 is right at the min — falls back to fewer scales.
+    const fixture = await makeFixturePng(32, 32);
+    const result = await calculatePerceptualScore(fixture, fixture);
+
+    expect(result.score).toBeGreaterThan(0);
+    expect(result.score).toBeLessThanOrEqual(1.0);
+  });
+});
+
+describe("findOptimalQuality with perceptual mode", () => {
+  it("uses the perceptual threshold from SSIM_TARGETS and returns a usable buffer", async () => {
+    const fixture = await makeFixturePng(300, 300);
+    const target = SSIM_TARGETS.perceptual;
+
+    const result = await findOptimalQuality(fixture, "webp", target, "perceptual");
+
+    expect(result.quality).toBeGreaterThanOrEqual(FORMAT_QUALITY_RANGES.webp.min);
+    expect(result.quality).toBeLessThanOrEqual(FORMAT_QUALITY_RANGES.webp.max);
+    // The "ssim" field carries the perceptual score in this mode (see
+    // findOptimalQuality JSDoc). Just assert it's in [0, 1].
+    expect(result.ssim).toBeGreaterThanOrEqual(0);
+    expect(result.ssim).toBeLessThanOrEqual(1);
+    expect(Buffer.isBuffer(result.buffer)).toBe(true);
+    expect(result.buffer.length).toBeGreaterThan(0);
+  });
+
+  it("perceptual mode produces a usable optimized buffer through optimizeImage", async () => {
+    const fixture = await makeFixturePng(400, 400);
+
+    const result = await optimizeImage(fixture, {
+      format: "webp",
+      level: "perceptual",
+    });
+
+    expect(Buffer.isBuffer(result.buffer)).toBe(true);
+    expect(result.buffer.length).toBeGreaterThan(0);
+    expect(result.format).toBe("webp");
+
+    // Output must be smaller than input (the gradient PNG is fat, webp will crush it).
+    expect(result.optimizedSize).toBeLessThan(result.originalSize);
+  });
+
+  it("does not break the four legacy modes", async () => {
+    // Regression guard: perceptual was added as a new variant. The four
+    // existing modes must keep producing bytes that match their old shape.
+    const fixture = await makeFixturePng(200, 200);
+    const levels = ["auto", "maximum-compression", "maximum-quality", "custom"] as const;
+
+    for (const level of levels) {
+      const result = await optimizeImage(fixture, {
+        format: "webp",
+        level,
+        ...(level === "custom" ? { customQuality: 70 } : {}),
+      });
+
+      expect(Buffer.isBuffer(result.buffer)).toBe(true);
+      expect(result.buffer.length).toBeGreaterThan(0);
+      // Existing modes report single-scale SSIM. Has to land in a sane band.
+      expect(result.ssim).toBeGreaterThan(0.9);
+    }
   });
 });
 

@@ -4,6 +4,12 @@ export {
   InputTooLargeDimensionsError,
   InputTooLargeError,
 } from "./errors";
+export {
+  calculatePerceptualScore,
+  PERCEPTUAL_METRIC_NAME,
+  PERCEPTUAL_SCORE_RANGE,
+  type PerceptualScoreResult,
+} from "./perceptual";
 export { calculateSSIM } from "./ssim";
 export {
   findOptimalQuality,
