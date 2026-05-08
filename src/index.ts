@@ -1,4 +1,4 @@
-// Public barrel export for @thomas/image-processing.
+// Public barrel export for @thomashartdev/image-processing.
 export { encodeImage } from "./encode";
 export {
   InputTooLargeDimensionsError,

@@ -1,4 +1,4 @@
-# @thomas/image-processing
+# @thomashartdev/image-processing
 
 Shared image optimization core built on `sharp` + `ssim.js`. Consumed by the
 pixel-wand app and (eventually) the Atlas DAM app.
@@ -20,7 +20,7 @@ import {
   type OptimizationLevel,
   type OptimizationOptions,
   type OptimizationResult,
-} from "@thomas/image-processing";
+} from "@thomashartdev/image-processing";
 ```
 
 ### `optimizeImage(buffer, options)`

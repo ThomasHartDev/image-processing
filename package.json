@@ -1,7 +1,20 @@
 {
-  "name": "@thomas/image-processing",
+  "name": "@thomashartdev/image-processing",
   "version": "0.3.0",
-  "private": true,
+  "description": "Sharp-based image optimizer with SSIM-driven quality search and perceptual scoring. Used by pixel-wand and atlas.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ThomasHartDev/pixel-wand.git",
+    "directory": "packages/image-processing"
+  },
+  "keywords": [
+    "image",
+    "optimization",
+    "sharp",
+    "ssim",
+    "perceptual"
+  ],
   "type": "commonjs",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -15,12 +28,16 @@
     "dist",
     "src"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "smoke": "pnpm build && node scripts/smoke.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
   },
   "dependencies": {
     "sharp": "^0.34.5",

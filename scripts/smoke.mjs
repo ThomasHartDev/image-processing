@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Smoke test for @thomas/image-processing.
+// Smoke test for @thomashartdev/image-processing.
 // Generates an in-memory 500x500 PNG, runs optimizeImage to JPEG at default
 // (level: "auto") options, then asserts the output is non-empty and SSIM > 0.9.
 
