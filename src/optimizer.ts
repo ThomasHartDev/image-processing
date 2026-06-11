@@ -62,7 +62,10 @@ async function applyResize(
   // preserveAspect=false → clamp each dimension independently (fill, no enlargement)
   const fit = preserveAspect ? "inside" : "fill";
 
+  // rotate() first so EXIF portrait images resize against their displayed
+  // dimensions, not the stored landscape pixels.
   return sharp(inputBuffer)
+    .rotate()
     .resize(maxWidth ?? null, maxHeight ?? null, { fit, withoutEnlargement: true })
     .toBuffer();
 }

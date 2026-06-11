@@ -423,3 +423,43 @@ describe("dimension probe guard", () => {
     expect(result.buffer.length).toBeGreaterThan(0);
   });
 });
+
+describe("EXIF orientation", () => {
+  // A landscape JPEG tagged orientation 6 (rotate 90° CW) displays as
+  // portrait. Re-encoding strips EXIF, so the pipeline must bake the
+  // rotation into the pixels or every phone/camera photo comes out sideways.
+  async function makeRotatedJpeg(): Promise<Buffer> {
+    const width = 400;
+    const height = 200;
+    const raw = Buffer.alloc(width * height * 3, 96);
+    return sharp(raw, { raw: { width, height, channels: 3 } })
+      .jpeg()
+      .withMetadata({ orientation: 6 })
+      .toBuffer();
+  }
+
+  it("optimizeImage bakes EXIF rotation into the output pixels", async () => {
+    const input = await makeRotatedJpeg();
+    const result = await optimizeImage(input, {
+      format: "webp",
+      level: "custom",
+      customQuality: 80,
+      maxWidth: 2048,
+      maxHeight: 2048,
+      preserveAspect: true,
+    });
+    const meta = await sharp(result.buffer).metadata();
+    // 400x200 landscape + orientation 6 → displayed 200x400 portrait.
+    expect(meta.width).toBe(200);
+    expect(meta.height).toBe(400);
+    expect(meta.orientation ?? 1).toBe(1);
+  });
+
+  it("encodeImage (no resize) also bakes the rotation", async () => {
+    const input = await makeRotatedJpeg();
+    const out = await encodeImage(input, "webp", 80);
+    const meta = await sharp(out).metadata();
+    expect(meta.width).toBe(200);
+    expect(meta.height).toBe(400);
+  });
+});

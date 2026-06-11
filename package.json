@@ -1,6 +1,6 @@
 {
   "name": "@thomashartdev/image-processing",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Sharp-based image optimizer with SSIM-driven quality search and perceptual scoring. Used by pixel-wand and atlas.",
   "license": "MIT",
   "repository": {

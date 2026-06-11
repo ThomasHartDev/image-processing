@@ -9,7 +9,10 @@ export async function encodeImage(
   format: ImageFormat,
   quality: number,
 ): Promise<Buffer> {
-  const image = sharp(inputBuffer);
+  // Auto-orient from EXIF before encoding. Re-encoding strips metadata, so
+  // without this an EXIF-rotated photo (most phone/camera shots) comes out
+  // with un-rotated pixels and no orientation tag - i.e. sideways.
+  const image = sharp(inputBuffer).rotate();
 
   switch (format) {
     case "webp":
