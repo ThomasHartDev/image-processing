@@ -1,5 +1,7 @@
 # @thomashartdev/image-processing
 
+[![CI](https://github.com/thomashartdev/image-processing/actions/workflows/ci.yml/badge.svg)](https://github.com/thomashartdev/image-processing/actions/workflows/ci.yml)
+
 Sharp-based image optimizer with SSIM-driven quality search and perceptual scoring. The canonical image-processing library across Thomas's projects (pixel-wand, atlas, future consumers).
 
 ## Install
@@ -75,10 +77,16 @@ The bump script assumes local clones at `/root/projects/{atlas,pixel-wand}` and 
 ## Tests
 
 ```bash
-pnpm test           # vitest unit tests
-pnpm smoke          # end-to-end: synth a PNG, optimize, assert SSIM > 0.9
-pnpm typecheck      # tsc --noEmit
+pnpm install && pnpm test   # vitest unit tests + public-API contract
+pnpm smoke                  # end-to-end: synth a PNG, optimize, assert SSIM > 0.9
+pnpm typecheck              # tsc --noEmit
 ```
+
+## Continuous integration
+
+GitHub Actions runs `typecheck`, `test`, and `smoke` on every push to `main` and every pull request (`.github/workflows/ci.yml`). Releases here are just a git tag, so nothing ran before the tag was already pushed. Now the same three checks a release depends on run before merge, which is where they can still stop a broken change.
+
+The `public-api` test asserts the barrel in `src/index.ts` still exports the full documented surface at the right runtime kinds. Consumers (pixel-wand, atlas) import against a tag, so a dropped or renamed export used to surface only when their install broke. The contract test pulls that into CI instead.
 
 ## Why git URL, not npm
 
