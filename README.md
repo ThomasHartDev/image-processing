@@ -47,6 +47,14 @@ import {
 - `encodeImage(buffer, opts)` — raw encode (no quality search). The escape hatch when you want full control.
 - `getFormatRecommendation(buffer, useCase)` — JPEG vs WebP vs AVIF for a given input.
 
+## Stack
+
+- TypeScript (strict), compiled to CommonJS
+- `sharp` for encode/resize (JPEG, WebP, AVIF) and native decode
+- `ssim.js` for structural-similarity scoring, driving the quality search and the multi-scale perceptual score
+- Vitest for unit tests and the public-API contract test
+- Distributed by git URL, not npm (see below)
+
 ## Consumers
 
 | Repo | Path |
